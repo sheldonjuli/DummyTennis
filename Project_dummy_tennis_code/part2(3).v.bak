@@ -1,0 +1,572 @@
+// Part 2 skeleton
+`timescale 1ns / 1ns
+
+module dummy_tennis
+	(
+		CLOCK_50,						//	On Board 50 MHz
+		// Your inputs and outputs here
+        KEY,
+        SW,
+		// The ports below are for the VGA output.  Do not change.
+		VGA_CLK,   						//	VGA Clock
+		VGA_HS,							//	VGA H_SYNC
+		VGA_VS,							//	VGA V_SYNC
+		VGA_BLANK,						//	VGA BLANK
+		VGA_SYNC,						//	VGA SYNC
+		VGA_R,   						//	VGA Red[9:0]
+		VGA_G,	 						//	VGA Green[9:0]
+		VGA_B   						//	VGA Blue[9:0]
+	);
+
+	input			CLOCK_50;				//	50 MHz
+	input   [9:0]   SW;
+	input   [3:0]   KEY;
+
+	// Declare your inputs and outputs here
+	// Do not change the following outputs
+	output		VGA_CLK;   				//	VGA Clock
+	output		VGA_HS;					//	VGA H_SYNC
+	output		VGA_VS;					//	VGA V_SYNC
+	output		VGA_BLANK;				//	VGA BLANK
+	output		VGA_SYNC;				//	VGA SYNC
+	output	[9:0]	VGA_R;   				//	VGA Red[9:0]
+	output	[9:0]	VGA_G;	 				//	VGA Green[9:0]
+	output	[9:0]	VGA_B;   				//	VGA Blue[9:0]
+	
+	
+	// Create the colour, x, y and writeEn wires that are inputs to the controller.
+	wire [2:0] colour;
+	wire [7:0] x;
+	wire [6:0] y;	
+	wire [6:0]p1_out;
+	wire [6:0]p2_out;
+	wire [6:0]p1_in;
+	wire [6:0]p2_in;
+	wire [14:0]ball_out;
+	wire [14:0]ball_in;
+	wire [1:0]direction_out;
+	wire [1:0]direction_in;
+	wire [4:0]speed_out;
+	wire [4:0]speed_in;
+	wire [2:0]select_op;
+	wire done, resetc, writeEn;
+
+	// Create an Instance of a VGA controller - there can be only one!
+	// Define the number of colours as well as the initial background
+	// image file (.MIF) for the controller.
+	vga_adapter VGA(
+			.resetn(resetn),
+			.clock(CLOCK_50),
+			.colour(colour[2:0]),
+			.x(x[7:0]),
+			.y(y[6:0]),
+			.plot(1),
+			/* Signals for the DAC to drive the monitor. */
+			.VGA_R(VGA_R),
+			.VGA_G(VGA_G),
+			.VGA_B(VGA_B),
+			.VGA_HS(VGA_HS),
+			.VGA_VS(VGA_VS),
+			.VGA_BLANK(VGA_BLANK),
+			.VGA_SYNC(VGA_SYNC),
+			.VGA_CLK(VGA_CLK));
+		defparam VGA.RESOLUTION = "160x120";
+		defparam VGA.MONOCHROME = "FALSE";
+		defparam VGA.BITS_PER_COLOUR_CHANNEL = 1;
+		defparam VGA.BACKGROUND_IMAGE = "black.mif";
+			
+	// Put your code here. Your code should produce signals x,y,colour and writeEn/plot
+	// for the VGA controller, in addition to any other functionality your design may require.
+	
+	ball_next_logic bl(
+	.ball_in(ball_in[14:0]),
+	.p1(p1_out[6:0]),
+	.p2(p2_out[6:0]),
+	.direction_in(direction_in[1:0]),
+	.speed_in(speed_in[4:0]),
+	.ball_out(ball_out[14:0]),
+	.direction_out(direction_out[1:0]),
+	.speed_out(speed_out[4:0])
+	);
+	
+	ball_reg br(
+	.writeEn(writeEn),
+	.ball_in(ball_out[14:0]),
+	.direction_in(direction_out[1:0]),
+	.speed_in(speed_out[4:0]),
+	.ball_out(ball_in[14:0]),
+	.direction_out(direction_in[1:0]),
+	.speed_out(speed_in[4:0]),
+	.resetn(KEY[0]),
+	.clk(CLOCK_50)
+	);
+	
+	player_control p1(
+	.SW(SW[9]),
+	.position(p1_in[6:0]),
+	.p_out(p1_out[6:0])
+	);
+	
+	player_control p2(
+	.SW(SW[0]),
+	.position(p2_in[6:0]),
+	.p_out(p2_out[6:0])
+	);
+	
+	player_reg p1r(
+	.pos_in(p1_out[6:0]),
+	.pos_out(p1_in[6:0]),
+	.writeEn(writeEn),
+	.resetn(KEY[0]),
+	.clk(CLOCK_50)
+	);
+	
+	player_reg p2r(
+	.pos_in(p2_out[6:0]),
+	.pos_out(p2_in[6:0]),
+	.writeEn(writeEn),
+	.resetn(KEY[0]),
+	.clk(CLOCK_50)
+	);
+	
+	display_control(
+	.colour(colour),
+	.select_op(select_op[2:0]),
+	.resetc(resetc),
+	.done(done),
+	.clean_enable(writeEn),
+	.resetn(KEY[0]),
+	.clk(CLOCK_50)
+	);
+	
+	display_module(
+	.xout(x),
+	.yout(y),
+	.done(done),
+	.p1_y(p1_out[6:0]),
+	.p2_y(p2_out[6:0]),
+	.ball_p(ball_out[14:0]),
+	.select_op(select_op[2:0]),
+	.resetc(resetc),
+	.clk(CLOCK_50)
+	);
+	
+	frame(
+	.enable(writeEn), 
+	.resetn(KEY[0]), 
+	.clk(CLOCK_50)
+	);
+endmodule
+
+
+module ball_next_logic(
+	ball_in,
+	p1,
+	p2,
+	direction_in,
+	speed_in,
+	ball_out,
+	direction_out,
+	speed_out
+	);
+
+	input [14:0]ball_in;
+	input [6:0]p1;
+	input [6:0]p2;
+	input [1:0]direction_in;
+	input [4:0]speed_in;
+	output reg [1:0]direction_out;
+	output reg [4:0]speed_out;
+	output reg [14:0]ball_out;
+	//output [1:0]win;
+	
+	//assign win[1:0] = 2'b00; 
+	always@(*) begin
+	if (~direction_in[0]) begin
+	    if ((ball_in[6:0] + speed_in[4:3]) >= 7'd118) begin
+		ball_out[6:0] = 7'd118;
+		direction_out[0] = 1;
+		speed_out[4:0] = speed_in[4:0];
+	    end
+	    else begin 
+		ball_out[6:0] = ball_in[6:0] + speed_in[4:3];
+		if (speed_in < 5'b11111)
+		    speed_out[4:0] = speed_in[4:0] + 1;
+		else
+		    speed_out[4:0] = speed_in[4:0];
+		direction_out[0] = direction_in[0];
+	    end
+	end
+	else begin
+	    if (speed_in[4:0] == 5'd0) begin
+		ball_out[6:0] = ball_in[6:0];
+		direction_out[0] = 0;
+		speed_out[4:0] = 5'd1;
+	    end
+	    else begin
+		ball_out[6:0] = ball_in[6:0] - speed_in[4:3];
+		direction_out[0] = direction_in[0];
+		speed_out[4:0] = speed_in[4:0] - 1;
+	    end
+	end
+	
+	if (ball_in[14:7] == 8'd2 ) begin
+	    if (ball_in[6:0] >= p1[6:0] && ball_in[6:0] <= p1[6:0] + 7'd15) begin
+		ball_out[14:7] = 8'd3;
+		direction_out[1] = 0;
+		speed_out[4:0] = speed_in[4:0];
+	    end
+	    else begin
+		ball_out[14:7] = ball_in[14:7] + direction_in[0];
+		direction_out[1] = direction_in[1];
+	    end
+	end
+	else if (ball_in[14:7] == 8'd158 ) begin
+	    if (ball_in[6:0] >= p1[6:0] && ball_in[6:0] <= p1[6:0] + 7'd15) begin
+		ball_out[14:7] = 8'd3;
+		direction_out[1] = 0;
+	    end else begin
+		ball_out[14:7] = ball_in[14:7] + 1;
+		direction_out[1] = 0;
+	    end
+	end else if(ball_in[14:7] == 8'd159) begin
+	    	ball_out[6:0] = 7'd50;
+		ball_out[14:7] = 8'd80;
+		direction_out[1:0] =  5'd10;
+		speed_out[4:0] = speed_in[4:0];
+	end else if(ball_in[14:7] == 8'd1) begin
+	    	ball_out[6:0] = 7'd50;
+		ball_out[14:7] = 8'd80;
+		direction_out[1:0] = 5'd11;
+		speed_out[4:0] = speed_in[4:0];
+	end else begin 
+	    if (direction_in[1] == 1)
+		ball_out[14:7] = ball_in[14:7] + 1;
+	    else
+		ball_out[14:7] = ball_in[14:7] - 1;
+	end
+	end
+endmodule
+
+
+module ball_reg(
+	writeEn,
+	ball_in,
+	direction_in,
+	speed_in,
+	ball_out,
+	direction_out,
+	speed_out,
+	clk,
+	resetn
+	);
+
+	output reg [14:0]ball_out;
+	output reg [1:0]direction_out;
+	output reg [4:0]speed_out;
+	input [14:0]ball_in;
+	input [1:0]direction_in;
+	input [4:0]speed_in;
+	input clk;
+	input writeEn;
+	input resetn;
+	
+	always@(posedge clk) begin 
+		if (~resetn) begin
+			 ball_out <= 7'd80;
+			 direction_out <= 2'b11;
+			 speed_out <= 5'b01000;
+			 end
+	  else if (writeEn) begin
+		  ball_out <= ball_in;
+		  direction_out <= direction_in;
+		  speed_out <= speed_in;
+	  end 
+	end
+	
+endmodule
+
+
+module player_control(
+	SW,
+	position,
+	p_out
+	);
+
+	output reg [6:0]p_out;
+	input SW;
+	input [6:0]position;
+
+
+    // Next state logic aka our state table
+    always@(*) begin 
+		if (SW) begin
+			if (position == 7'd0)
+				p_out <= position;
+			else
+				p_out <= position - 1;
+		end 
+		else begin
+	   if (position == 7'd101)
+			p_out <= position;
+	   else
+			p_out <= position + 1;
+		end
+    end
+endmodule
+
+module player_reg(
+	pos_in,
+	pos_out,
+	writeEn,
+	clk,
+	resetn
+	);
+
+	output reg [6:0]pos_out;
+	input writeEn;
+	input clk;
+	input [6:0]pos_in;
+	input resetn;
+
+
+    // Next state logic aka our state table
+    always@(posedge clk) begin
+	 	if (~resetn) 
+			pos_out <= 7'd60;
+		else if (writeEn) 
+			pos_out <= pos_in;
+    end
+    
+endmodule
+
+module display_module(xout, yout, done, p1_y, p2_y, ball_p, select_op, resetc, clk);
+
+output reg [7:0]xout;
+output reg [6:0]yout;
+output reg done;
+
+input [6:0]p1_y;
+input [6:0]p2_y;
+input [14:0]ball_p;
+input [2:0]select_op;
+input resetc;
+input clk;
+
+reg [6:0]local_p1_y;
+reg [6:0]local_p2_y;
+reg [6:0]local_m_y;
+
+// counter to clean the screen
+always @(posedge clk) begin
+	if (~resetc) begin
+		xout <= 8'd0;
+		yout <= 7'd0;
+		done <= 1'b0;
+		local_p1_y <= p1_y;
+		local_p2_y <= p2_y;
+		local_m_y <= 7'd100;
+	end
+	else if (select_op == 3'b000) begin
+		if (yout < 7'd120)
+		  	begin
+			    if (xout < 8'd160)
+			    	xout <= xout + 1'd1;
+			    else begin
+			     	xout <= 8'd0;
+			     	yout <= yout + 1'd1;
+			    end
+			end
+		else
+			done <= 1'b1; // finish counting
+	end
+	else if (select_op == 3'b001) begin // draw p1 bar
+		xout <= 8'd0;
+		if (yout < p1_y + 7'd16)
+		  	begin
+		  		yout <= local_p1_y;
+			    local_p1_y <= local_p1_y + 1'd1;
+			end
+		else
+			done <= 1'b1; // finish counting
+	end
+	else if (select_op == 3'b010) begin // draw p2 bar
+		xout <= 8'd160;
+		if (yout < p2_y + 7'd16)
+		  	begin
+		  		yout <= local_p2_y;
+			    local_p2_y <= local_p2_y + 1'd1;
+			end
+		else
+			done <= 1'b1; // finish counting
+	end
+	else if (select_op == 3'b011) begin // draw ball
+		xout <= ball_p[14:7];
+		yout <= ball_p[6:0];
+		done <= 1'b1; // finish counting
+	end
+	else if (select_op == 3'b100) begin // draw middle bar
+		xout <= 8'd80;
+		if (yout < 7'd119)
+		  	begin
+		  		yout <= local_m_y;
+			    local_m_y <= local_m_y + 1'd1;
+			end
+		else
+			done <= 1'b1; // finish counting
+	end
+	else if (select_op == 3'b101) begin // draw bottom bar
+		xout <= 8'd0;
+		yout <= 7'd120;
+		if (xout < 8'd160)
+		  	begin
+			     xout <= xout + 1'd1;
+			end
+		else
+			done <= 1'b1; // finish counting
+	end
+end
+
+endmodule
+
+module display_control(
+	colour,
+	select_op,
+	resetc,
+	done,
+	clean_enable,
+	resetn,
+	clk
+	);
+	
+	output reg [2:0]select_op;
+	output reg [2:0]colour;
+	output reg resetc;
+
+	input done; // signal to move to the next state
+	input clean_enable;
+	input resetn;
+	input clk;
+
+	reg [4:0] current_state, next_state;   // 2 states require 1 bits
+
+	
+    localparam [4:0]  S_PREPARE_CLEAN           = 5'd0,
+   			S_CLEAN                   = 5'd1,
+    			S_PREPARE_DRAW_P1_BAR     = 5'd2,
+   			S_DRAW_P1_BAR             = 5'd3,
+    			S_PREPARE_DRAW_P2_BAR     = 5'd4,
+    			S_DRAW_P2_BAR             = 5'd5,
+			S_PREPARE_DRAW_BALL       = 5'd6,
+    			S_DRAW_BALL               = 5'd7,
+    			S_PREPARE_DRAW_MIDDLE_BAR     = 5'd8,
+    			S_DRAW_MIDDLE_BAR             = 5'd9,
+    			S_PREPARE_DRAW_BOTTOM_BAR     = 5'd10,
+    			S_DRAW_BOTTOM_BAR             = 5'd11;
+
+    // Next state logic aka our state table
+    always@(*) 
+	 begin: state_table
+        case (current_state)
+        		S_PREPARE_CLEAN:next_state = S_CLEAN;
+        		S_CLEAN: next_state = done ? S_PREPARE_DRAW_P1_BAR : S_CLEAN;
+        		S_PREPARE_DRAW_P1_BAR: next_state = S_DRAW_P1_BAR;
+        		S_DRAW_P1_BAR: next_state = done ? S_DRAW_P2_BAR : S_PREPARE_DRAW_P1_BAR;
+        		S_PREPARE_DRAW_P2_BAR: next_state = S_DRAW_P2_BAR;
+        		S_DRAW_P2_BAR: next_state = done ? S_PREPARE_DRAW_BALL : S_DRAW_P2_BAR;
+        		S_PREPARE_DRAW_BALL: next_state = S_DRAW_BALL;
+			S_DRAW_BALL: next_state = done ? S_PREPARE_DRAW_MIDDLE_BAR : S_DRAW_BALL;
+			S_PREPARE_DRAW_MIDDLE_BAR: next_state = S_DRAW_MIDDLE_BAR;
+        		S_DRAW_MIDDLE_BAR: next_state = done ? S_PREPARE_DRAW_BOTTOM_BAR : S_DRAW_MIDDLE_BAR;
+			S_PREPARE_DRAW_BOTTOM_BAR: next_state = S_DRAW_BOTTOM_BAR;
+        		S_DRAW_BOTTOM_BAR: next_state = clean_enable ? S_PREPARE_CLEAN : S_DRAW_BOTTOM_BAR;
+            default:     next_state = S_PREPARE_CLEAN;
+        endcase
+	end
+	
+	always@(*) 
+	begin: enable_signals
+
+		case (current_state)
+			S_PREPARE_CLEAN:begin
+				resetc = 1'b0;
+			end
+			S_CLEAN:begin
+				resetc = 1'b1;
+				select_op = 3'd0; // select clean counter
+				colour = 3'b000; // draw black
+			end
+			S_PREPARE_DRAW_P1_BAR:begin
+				resetc = 1'b0;
+			end
+			S_DRAW_P1_BAR:begin
+				resetc = 1'b1;
+				select_op = 3'd1; // select P1 bar counter
+				colour = 3'b111; // draw white
+			end
+			S_PREPARE_DRAW_P2_BAR:begin
+				resetc = 1'b0;
+			end
+			S_DRAW_P2_BAR:begin
+				resetc = 1'b1;
+				select_op = 3'd2; // select p2 bar counter
+				colour = 3'b111; // draw white
+			end
+			S_PREPARE_DRAW_BALL:begin
+				resetc = 1'b0;
+			end
+			S_DRAW_BALL:begin
+				resetc = 1'b1;
+				select_op = 3'd3; // select ball
+				colour = 3'b111; // draw white
+			end
+			S_PREPARE_DRAW_MIDDLE_BAR:begin
+				resetc = 1'b0;
+			end
+			S_DRAW_P2_BAR:begin
+				resetc = 1'b1;
+				select_op = 3'd4; // select middle bar counter
+				colour = 3'b111; // draw white
+			end
+			S_PREPARE_DRAW_BOTTOM_BAR:begin
+				resetc = 1'b0;
+			end
+			S_DRAW_BOTTOM_BAR:begin
+				resetc = 1'b1;
+				select_op = 3'd5; // select bottom bar counter
+				colour = 3'b111; // draw white
+			end
+		endcase
+	end
+
+	// FSM state register/FF
+	always @(posedge clk, negedge resetn) begin
+		if (~resetn) 
+			current_state <= S_PREPARE_CLEAN;
+		else
+			current_state <= next_state;
+	end
+
+endmodule
+
+module frame(enable, resetn, clk);
+
+	output enable;
+
+	input resetn;
+	input clk;
+
+	reg [15:0]rate_counter;  //1100101101110100
+
+	always@(posedge clk) begin
+		if (~resetn)
+			rate_counter <= 16'b1100101101110100;
+		else if (rate_counter == 0)
+			rate_counter <= 16'b1100101101110100;
+		else
+			rate_counter <= rate_counter - 1'b1;
+	end
+
+	assign enable = (rate_counter == 0) ? 1:0;
+
+endmodule
